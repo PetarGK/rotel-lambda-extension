@@ -88,6 +88,17 @@ struct Arguments {
     /// after the response, so nothing is buffered while the environment is frozen.
     lambda_flush_mode: LambdaFlushModeArg,
 
+    #[arg(
+        long,
+        env = "ROTEL_LAMBDA_FORWARD_FUNCTION_LOGS",
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
+    /// Export the function's stdout and stderr as logs. Turn this off when the
+    /// function already exports its logs over OTLP, or every line arrives twice.
+    lambda_forward_function_logs: bool,
+
     // This is ignored in these options, but we keep it here to avoid an error on unknown
     // options
     #[arg(long)]
@@ -171,6 +182,7 @@ fn main() -> ExitCode {
         telemetry_listener,
         &opt.environment,
         opt.lambda_flush_mode.into(),
+        opt.lambda_forward_function_logs,
     ) {
         Ok(_) => {}
         Err(e) => {
@@ -230,6 +242,7 @@ async fn run_extension(
     telemetry_listener: Listener,
     env: &String,
     flush_policy: FlushPolicy,
+    forward_function_logs: bool,
 ) -> Result<(), BoxError> {
     let mut tapi_join_set = JoinSet::new();
     let mut agent_join_set = JoinSet::new();
@@ -303,6 +316,7 @@ async fn run_extension(
         client.clone(),
         &r.extension_id,
         &telemetry_listener.bound_address()?,
+        forward_function_logs,
     )
     .await
     {
@@ -334,7 +348,7 @@ async fn run_extension(
     };
     handle_next_response(next_evt);
 
-    info!(?flush_policy, "Using flush policy");
+    info!(?flush_policy, forward_function_logs, "Using flush policy");
     let mut flush_control = FlushControl::with_policy(SystemClock {}, flush_policy);
 
     'outer: loop {
